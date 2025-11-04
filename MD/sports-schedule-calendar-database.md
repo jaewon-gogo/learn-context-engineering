@@ -6,11 +6,13 @@
 
 이 데이터베이스는 스포츠팀 경기일정 캘린더 웹사이트의 핵심 데이터를 저장하고 관리합니다. 주요 역할은 다음과 같습니다:
 
-- ✅ 사용자 인증 정보 관리 (iCloud OAuth)
+- ✅ 사용자 인증 정보 관리 (Google OAuth) (iCloud → Google 변경)
 - ✅ 사용자별 설정 및 선호도 관리
 - 스포츠 종목 및 팀 정보 관리
 - 크롤링한 경기일정 데이터 저장 및 관리
-- ✅ iCloud 캘린더 연동 정보 및 동기화 이력 관리
+- ✅ Google 캘린더 연동 정보 및 동기화 이력 관리 (iCloud → Google 변경)
+- ✅ 알림 설정 관리 (이메일, 푸시)
+- ✅ 캘린더 공유 정보 관리 (선택)
 - 크롤링 이력 추적 (선택)
 - 캐시 관리 및 성능 최적화
 
@@ -155,14 +157,15 @@
 **엔터티 명**: Users
 
 **개요 및 목적**:
-- iCloud 계정으로 로그인한 사용자 정보 관리
+- Google 계정으로 로그인한 사용자 정보 관리 (iCloud → Google 변경)
 - 사용자 인증 및 세션 관리
 
 **주요 속성**:
 - 사용자 ID (식별자)
-- iCloud 사용자 식별자 (Apple ID)
+- Google 사용자 식별자 (Google ID)
 - 이메일 주소
 - 이름 (선택)
+- 프로필 이미지 URL (선택)
 - OAuth 토큰 (암호화된 저장)
 - Refresh 토큰 (암호화된 저장)
 - 토큰 만료 일시
@@ -171,9 +174,10 @@
 - 최종 로그인 일시
 
 **비즈니스 규칙**:
-- 각 사용자는 고유한 iCloud 사용자 식별자로 식별
+- 각 사용자는 고유한 Google 사용자 식별자로 식별
 - OAuth 토큰은 반드시 암호화하여 저장
 - 토큰 만료 시 자동 갱신 또는 재로그인 필요
+- Google OAuth는 Refresh Token을 통한 자동 갱신 지원
 
 #### 2.6 UserTeams (사용자별 팀 설정) - ✅ 추가
 
@@ -200,43 +204,52 @@
 **엔터티 명**: CalendarSettings
 
 **개요 및 목적**:
-- 사용자별 iCloud 캘린더 연동 설정 관리
+- 사용자별 Google 캘린더 연동 설정 관리 (iCloud → Google 변경)
 - 캘린더 선택 및 동기화 설정
+- 알림 설정 관리
 
 **주요 속성**:
 - 설정 ID (식별자)
 - 사용자 ID (외래키)
-- iCloud 캘린더 ID
+- Google 캘린더 ID
 - 캘린더 이름
 - 자동 동기화 여부
 - 동기화 주기
+- 이메일 알림 여부
+- 푸시 알림 여부
+- 알림 시점 (경기 전 일수/시간)
+- 캘린더 색상 (선택)
+- 공유 설정 (선택)
 - 생성 일시
 - 수정 일시
 
 **비즈니스 규칙**:
 - 한 사용자는 하나의 캘린더 설정만 가짐 (1:1)
 - 사용자 삭제 시 설정도 삭제 (CASCADE)
+- Google 캘린더 ID는 Google Calendar API에서 제공하는 고유 식별자
 
 #### 2.8 CalendarSyncHistory (캘린더 동기화 이력) - ✅ 추가
 
 **엔터티 명**: CalendarSyncHistory
 
 **개요 및 목적**:
-- iCloud 캘린더로의 경기일정 동기화 이력 추적
+- Google 캘린더로의 경기일정 동기화 이력 추적 (iCloud → Google 변경)
 - 동기화 성공/실패 모니터링
 
 **주요 속성**:
 - 동기화 ID (식별자)
 - 사용자 ID (외래키)
 - 경기 ID (외래키)
-- iCloud 이벤트 ID
-- 동기화 상태 (성공/실패)
+- Google 이벤트 ID (Google Calendar API에서 제공)
+- 동기화 상태 (성공/실패/대기중)
 - 동기화 일시
 - 에러 메시지 (선택)
+- 에러 코드 (선택, Google API 에러 코드)
 
 **비즈니스 규칙**:
 - 각 동기화는 이력으로 기록
-- 실패한 동기화는 에러 메시지 저장
+- 실패한 동기화는 에러 메시지 및 에러 코드 저장
+- Google 이벤트 ID는 동기화 성공 시 저장
 - 오래된 이력은 주기적으로 정리 가능
 
 ### 개념 ERD
@@ -254,9 +267,10 @@ erDiagram
 
     Users {
         int user_id PK
-        string icloud_user_id
+        string google_user_id
         string email
         string name
+        string profile_image_url
         string oauth_token_encrypted
         string refresh_token_encrypted
         datetime token_expires_at
@@ -276,10 +290,15 @@ erDiagram
     CalendarSettings {
         int settings_id PK
         int user_id FK
-        string icloud_calendar_id
+        string google_calendar_id
         string calendar_name
         boolean auto_sync
         string sync_interval
+        boolean email_notification
+        boolean push_notification
+        string notification_timing
+        string calendar_color
+        boolean is_shared
         datetime created_at
         datetime updated_at
     }
@@ -288,10 +307,11 @@ erDiagram
         int sync_id PK
         int user_id FK
         int schedule_id FK
-        string icloud_event_id
+        string google_event_id
         string sync_status
         datetime synced_at
         text error_message
+        string error_code
     }
 
     Sports {
@@ -571,12 +591,13 @@ CREATE TABLE crawl_history (
     FOREIGN KEY (team_id) REFERENCES teams(team_id) ON DELETE CASCADE
 );
 
--- 사용자 테이블 (✅ iCloud OAuth)
+-- 사용자 테이블 (✅ Google OAuth)
 CREATE TABLE users (
     user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    icloud_user_id VARCHAR(255) NOT NULL UNIQUE,
+    google_user_id VARCHAR(255) NOT NULL UNIQUE,
     email VARCHAR(255) NOT NULL,
     name VARCHAR(100),
+    profile_image_url VARCHAR(500),
     oauth_token_encrypted TEXT NOT NULL,
     refresh_token_encrypted TEXT NOT NULL,
     token_expires_at DATETIME NOT NULL,
@@ -597,28 +618,34 @@ CREATE TABLE user_teams (
     UNIQUE(user_id, team_id)
 );
 
--- 캘린더 연동 설정 테이블 (✅ iCloud 캘린더)
+-- 캘린더 연동 설정 테이블 (✅ Google 캘린더)
 CREATE TABLE calendar_settings (
     settings_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL UNIQUE,
-    icloud_calendar_id VARCHAR(255) NOT NULL,
+    google_calendar_id VARCHAR(255) NOT NULL,
     calendar_name VARCHAR(100) NOT NULL,
     auto_sync BOOLEAN NOT NULL DEFAULT 1,
     sync_interval VARCHAR(20) DEFAULT 'DAILY' CHECK (sync_interval IN ('HOURLY', 'DAILY', 'WEEKLY')),
+    email_notification BOOLEAN NOT NULL DEFAULT 1,
+    push_notification BOOLEAN NOT NULL DEFAULT 1,
+    notification_timing VARCHAR(50) DEFAULT '1일전,1시간전' CHECK (notification_timing IN ('1일전', '1시간전', '30분전', '1일전,1시간전', '1일전,1시간전,30분전')),
+    calendar_color VARCHAR(20),
+    is_shared BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
--- 캘린더 동기화 이력 테이블 (✅ 추가)
+-- 캘린더 동기화 이력 테이블 (✅ Google 캘린더)
 CREATE TABLE calendar_sync_history (
     sync_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     schedule_id INTEGER NOT NULL,
-    icloud_event_id VARCHAR(255),
+    google_event_id VARCHAR(255),
     sync_status VARCHAR(20) NOT NULL CHECK (sync_status IN ('SUCCESS', 'FAILED', 'PENDING')),
     synced_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     error_message TEXT,
+    error_code VARCHAR(50),
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
     FOREIGN KEY (schedule_id) REFERENCES schedules(schedule_id) ON DELETE CASCADE
 );
@@ -644,7 +671,7 @@ CREATE INDEX idx_crawl_history_started_at ON crawl_history(crawl_started_at);
 CREATE INDEX idx_crawl_history_status ON crawl_history(crawl_status);
 
 -- users 테이블 인덱스
-CREATE INDEX idx_users_icloud_user_id ON users(icloud_user_id);
+CREATE INDEX idx_users_google_user_id ON users(google_user_id);
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_active ON users(is_active);
 
@@ -795,9 +822,9 @@ SQLite는 파일 기반이므로 별도의 스토리지 파라미터 설정이 �
 
 | 테이블명 | 논리명 | 설명 | 레코드 수 (예상) |
 |---------|--------|------|-----------------|
-| users | 사용자 | iCloud 사용자 정보 | 10 |
+| users | 사용자 | Google 사용자 정보 | 10 |
 | user_teams | 사용자별 팀 설정 | 사용자별 관심 팀 | 50 |
-| calendar_settings | 캘린더 연동 설정 | iCloud 캘린더 설정 | 10 |
+| calendar_settings | 캘린더 연동 설정 | Google 캘린더 설정 | 10 |
 | calendar_sync_history | 캘린더 동기화 이력 | 동기화 이력 | 10,000 |
 | sports | 스포츠 종목 | 스포츠 종목 정보 | 15 |
 | teams | 팀 | 팀 정보 | 150 |
@@ -865,27 +892,28 @@ SQLite는 파일 기반이므로 별도의 스토리지 파라미터 설정이 �
 
 ### 접근 제어 설계
 
-**현황 이해**: ✅ iCloud OAuth 인증 필요 (요구사항 변경)
+**현황 이해**: ✅ Google OAuth 인증 필요 (iCloud → Google 변경)
 
 **추천안**: 
-- ✅ **사용자 인증**: iCloud OAuth 2.0을 통한 사용자 인증
+- ✅ **사용자 인증**: Google OAuth 2.0을 통한 사용자 인증
 - ✅ **데이터 격리**: 사용자별로 데이터 접근 제어 (user_id 필터링)
 - ✅ **권한 관리**: 현재는 단일 사용자 권한만 필요 (향후 확장 가능)
 
 **사용자/권한/역할 정의**:
-- ✅ **현재**: iCloud 계정으로 로그인한 사용자만 접근 가능
+- ✅ **현재**: Google 계정으로 로그인한 사용자만 접근 가능
 - ✅ **데이터 격리**: 모든 데이터 조회 시 user_id 필터링 필수
 - 향후: 다중 사용자 지원 시 역할 기반 접근 제어 (RBAC) 고려
 
 ### 데이터 암호화 설계
 
-**현황 이해**: ✅ iCloud OAuth 토큰 저장 필요 (민감 정보)
+**현황 이해**: ✅ Google OAuth 토큰 저장 필요 (민감 정보)
 
 **추천안**: 
 - ✅ **OAuth 토큰 암호화**: `oauth_token_encrypted`, `refresh_token_encrypted` 컬럼은 반드시 암호화하여 저장
 - ✅ **암호화 방법**: AES-256 암호화 또는 데이터베이스 레벨 암호화 기능 활용
 - ✅ **환경 변수**: 암호화 키는 환경 변수로 관리 (절대 코드에 하드코딩 금지)
-- 사용자 이메일은 일반 텍스트 저장 가능 (iCloud에서 제공하는 공개 정보)
+- 사용자 이메일은 일반 텍스트 저장 가능 (Google에서 제공하는 공개 정보)
+- Google OAuth는 Refresh Token을 통한 자동 토큰 갱신 지원 (토큰 만료 전 갱신)
 
 ### 감사 로그 설계
 
